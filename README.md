@@ -1,6 +1,13 @@
-# capcheck
+<p align="center"><img src=".github/banner.png" alt="octo/capcheck — your CapabilityStatement, tested on your server" width="100%"></p>
 
-**Does your FHIR server do what its CapabilityStatement says?**
+<p align="center"><b>Does your FHIR server do what its CapabilityStatement says?</b></p>
+
+<p align="center">
+  <a href="https://github.com/octofhir/capcheck/actions/workflows/ci.yml"><img src="https://github.com/octofhir/capcheck/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://crates.io/crates/capcheck"><img src="https://img.shields.io/crates/v/capcheck.svg" alt="crates.io"></a>
+  <a href="https://docs.rs/capcheck"><img src="https://docs.rs/capcheck/badge.svg" alt="docs.rs"></a>
+  <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a>
+</p>
 
 A CapabilityStatement is a set of claims, and nothing checks them. capcheck reads
 `/metadata` and puts each claim to the test against the running server: a declared interaction
