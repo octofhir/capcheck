@@ -221,6 +221,84 @@ async fn only_the_asked_types_are_checked() {
 }
 
 #[tokio::test]
+async fn an_operation_at_rest_level_may_belong_to_resource_types() {
+    let mock = MockServer::start().await;
+    let statement = json!({
+        "resourceType": "CapabilityStatement",
+        "rest": [{
+            "mode": "server",
+            "operation": [
+                {"name": "lookup"},
+                {"name": "meta", "definition": "http://example.org/OperationDefinition/meta"}
+            ]
+        }]
+    });
+    let definition = json!({"resourceType": "OperationDefinition", "system": true});
+    Mock::given(method("GET"))
+        .and(path("/metadata"))
+        .respond_with(fhir(200, statement))
+        .mount(&mock)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/OperationDefinition"))
+        .respond_with(fhir(
+            200,
+            bundle("searchset", json!([{"resource": definition}])),
+        ))
+        .mount(&mock)
+        .await;
+    let report = check(&Options::new(mock.uri())).await.unwrap();
+
+    assert_eq!(
+        verdict(&report, "server", "operation $lookup"),
+        Verdict::Skip
+    );
+    assert_eq!(verdict(&report, "server", "operation $meta"), Verdict::Fail);
+}
+
+#[tokio::test]
+async fn a_search_without_a_self_link_proves_nothing_either_way() {
+    let mock = MockServer::start().await;
+    let parameter = json!([{"name": "name", "type": "string"}]);
+    let statement = json!({
+        "resourceType": "CapabilityStatement",
+        "rest": [{
+            "mode": "server",
+            "resource": [
+                {"type": "Library", "searchParam": parameter},
+                {"type": "Group", "searchParam": parameter}
+            ]
+        }]
+    });
+    Mock::given(method("GET"))
+        .and(path("/metadata"))
+        .respond_with(fhir(200, statement))
+        .mount(&mock)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/Library"))
+        .and(query_param("capcheck-unknown-parameter", "1"))
+        .respond_with(fhir(500, outcome("Unsupported search parameter")))
+        .mount(&mock)
+        .await;
+    for resource in ["/Library", "/Group"] {
+        Mock::given(method("GET"))
+            .and(path(resource))
+            .respond_with(fhir(200, bundle("searchset", json!([]))))
+            .mount(&mock)
+            .await;
+    }
+    let report = check(&Options::new(mock.uri())).await.unwrap();
+
+    // Library refuses what it does not know, so it knows this one.
+    assert_eq!(
+        verdict(&report, "Library", "searchParam name"),
+        Verdict::Pass
+    );
+    assert_eq!(verdict(&report, "Group", "searchParam name"), Verdict::Skip);
+}
+
+#[tokio::test]
 async fn a_server_with_no_statement_is_an_error() {
     let mock = MockServer::start().await;
     Mock::given(method("GET"))

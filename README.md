@@ -40,9 +40,9 @@ reports.
 | `rest.resource.interaction` | `search-type`, `history-type`, and on a stored resource `read`, `vread`, `history-instance` |
 | `versioning` | Reads carry an ETag with the version |
 | `conditionalRead` | `If-None-Match` and `If-Modified-Since` give 304 |
-| `searchParam` | A search with a value of the declared type is accepted. With `Prefer: handling=strict` the parameter must not be refused, and the server is first checked to refuse an unknown one. Without strict handling, the parameter has to be in the `self` link |
+| `searchParam` | A search with a value of the declared type is accepted. With `Prefer: handling=strict` the parameter must not be refused, and the server is first checked to refuse an unknown one. Without strict handling, the parameter has to be in the `self` link; a result with no `self` link says nothing either way |
 | `searchInclude`, `searchRevInclude` | The same, as `_include` and `_revinclude` |
-| `operation` | Operations that change nothing are called with a GET; they may refuse to work without parameters, but they have to be there, at type or instance level |
+| `operation` | Operations that change nothing are called with a GET; they may refuse to work without parameters, but they have to be there, at type or instance level. `rest.operation` may also hold operations of several resource types, so a miss at system level only fails when the OperationDefinition has `system = true` |
 
 With `--write`, on Patient: `create`, `update`, `patch`, `delete`, `conditionalCreate`,
 `conditionalUpdate`, `conditionalDelete`, and that `versioned-update` refuses a stale `If-Match`.

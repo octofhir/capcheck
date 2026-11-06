@@ -135,30 +135,40 @@ async fn search_param(
         server.get(&path).await?
     };
     Ok(if bundle_of(&answer, "searchset") {
-        if strict || used_in_self_link(&answer, &parameter.name) {
-            Finding::new(resource, claim, Verdict::Pass, "")
-        } else {
-            Finding::new(
+        match (strict, self_link(&answer)) {
+            (true, _) => Finding::new(resource, claim, Verdict::Pass, ""),
+            (false, None) => Finding::new(
+                resource,
+                claim,
+                Verdict::Skip,
+                "no self link to tell whether the parameter was used",
+            ),
+            (false, Some(url)) if carries(url, &parameter.name) => {
+                Finding::new(resource, claim, Verdict::Pass, "")
+            }
+            (false, Some(_)) => Finding::new(
                 resource,
                 claim,
                 Verdict::Fail,
                 "the self link does not carry the parameter, so it was ignored",
-            )
+            ),
         }
     } else {
         judge(resource, &claim, true, false, &answer)
     })
 }
 
-/// Parameters a server ignored are left out of the `self` link of the result.
-fn used_in_self_link(answer: &Answer, name: &str) -> bool {
+fn self_link(answer: &Answer) -> Option<&str> {
     answer.body["link"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|link| link["relation"] == "self")
-        .and_then(|link| link["url"].as_str())
-        .is_some_and(|url| url.contains(&format!("{name}=")) || url.contains(&encode(name)))
+        .as_array()?
+        .iter()
+        .find(|link| link["relation"] == "self")?["url"]
+        .as_str()
+}
+
+/// Parameters a server ignored are left out of the `self` link of the result.
+fn carries(url: &str, name: &str) -> bool {
+    url.contains(&format!("{name}=")) || url.contains(&encode(name))
 }
 
 async fn control(
@@ -191,7 +201,8 @@ async fn strict_handling(server: &Server, resource: &str) -> Result<bool, Error>
             None,
         )
         .await?;
-    Ok(answer.status.is_client_error())
+    // A 500 is a poor way to say it, but the parameter was refused all the same.
+    Ok(answer.status.is_client_error() || answer.status == StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 fn entry_of(search: &Answer) -> Option<&Value> {
@@ -385,6 +396,13 @@ async fn safe_to_call(server: &Server, operation: &Operation) -> Result<Option<b
     if READ_ONLY_OPERATIONS.contains(&operation.name.as_str()) {
         return Ok(Some(true));
     }
+    Ok(definition_of(server, operation)
+        .await?
+        .map(|definition| definition["affectsState"] == false && definition["type"] == true))
+}
+
+/// The OperationDefinition an operation points at, when the server publishes it.
+async fn definition_of(server: &Server, operation: &Operation) -> Result<Option<Value>, Error> {
     let Some(canonical) = &operation.definition else {
         return Ok(None);
     };
@@ -395,8 +413,7 @@ async fn safe_to_call(server: &Server, operation: &Operation) -> Result<Option<b
             encode(url)
         ))
         .await?;
-    Ok(entry_of(&found)
-        .map(|definition| definition["affectsState"] == false && definition["type"] == true))
+    Ok(entry_of(&found).cloned())
 }
 
 fn missing(answer: &Answer) -> bool {
@@ -424,6 +441,21 @@ pub(crate) async fn operation(
         ));
     }
     let mut answer = server.get(&format!("{path}/${}", operation.name)).await?;
+    // `rest.operation` also holds operations of several resource types, and it does not say
+    // which: only a definition can tell that this one has to work at system level.
+    if missing(&answer) && path.is_empty() {
+        let system = definition_of(server, operation)
+            .await?
+            .is_some_and(|definition| definition["system"] == true);
+        if !system {
+            return Ok(Finding::new(
+                subject,
+                claim,
+                Verdict::Skip,
+                "not at system level, and nothing says on which resource types",
+            ));
+        }
+    }
     if missing(&answer) && !path.is_empty() {
         let search = server.get(&format!("{path}?_count=1")).await?;
         let Some(id) = entry_of(&search).and_then(|stored| stored["id"].as_str()) else {
